@@ -1,6 +1,13 @@
+import asyncio
 import os
+import sys
+
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
+
+
 from dotenv import load_dotenv
 from cli.embedding_app import EmbeddingSetupApp
+from src.notebookllama.utils import create_llamacloud_client
 
 from llama_cloud import (
     PipelineTransformConfig_Advanced,
@@ -8,7 +15,6 @@ from llama_cloud import (
     AdvancedModeTransformConfigSegmentationConfig_Page,
     PipelineCreate,
 )
-from llama_cloud.client import LlamaCloud
 
 
 def main():
@@ -16,10 +22,8 @@ def main():
     Create a new Llama Cloud index with the given embedding configuration.
     """
     load_dotenv()
-    client = LlamaCloud(token=os.getenv("LLAMACLOUD_API_KEY"))
+    client = create_llamacloud_client()
 
-    # Run the embedding setup app to get the embedding configuration
-    # This prompts the user to select an embedding provider and configure the embedding model
     app = EmbeddingSetupApp()
     embedding_config = app.run()
 
@@ -45,7 +49,9 @@ def main():
             transform_config=transform_config,
         )
 
-        pipeline = client.pipelines.upsert_pipeline(request=pipeline_request)
+        pipeline = asyncio.run(
+            client.pipelines.upsert_pipeline(request=pipeline_request)
+        )
 
         with open(".env", "a") as f:
             f.write(f'\nLLAMACLOUD_PIPELINE_ID="{pipeline.id}"')

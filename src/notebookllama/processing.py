@@ -1,17 +1,24 @@
+import os
+import sys
 from dotenv import load_dotenv
 import pandas as pd
 import json
-import os
 import warnings
 from datetime import datetime
 
 from mrkdwn_analysis import MarkdownAnalyzer
 from mrkdwn_analysis.markdown_analyzer import InlineParser, MarkdownParser
-from llama_cloud_services import LlamaExtract, LlamaParse
 from llama_cloud_services.extract import SourceText
-from llama_cloud.client import AsyncLlamaCloud
 from typing_extensions import override
 from typing import List, Tuple, Union, Optional, Dict
+
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
+
+from notebookllama.utils import (
+    create_llamacloud_client,
+    create_llama_extract_client,
+    create_llama_parse_client,
+)
 
 load_dotenv()
 
@@ -20,11 +27,10 @@ if (
     and os.getenv("EXTRACT_AGENT_ID", None)
     and os.getenv("LLAMACLOUD_PIPELINE_ID", None)
 ):
-    CLIENT = AsyncLlamaCloud(token=os.getenv("LLAMACLOUD_API_KEY"))
-    EXTRACT_AGENT = LlamaExtract(api_key=os.getenv("LLAMACLOUD_API_KEY")).get_agent(
-        id=os.getenv("EXTRACT_AGENT_ID")
-    )
-    PARSER = LlamaParse(api_key=os.getenv("LLAMACLOUD_API_KEY"), result_type="markdown")
+    CLIENT = create_llamacloud_client()
+    llama_extract_client = create_llama_extract_client()
+    EXTRACT_AGENT = llama_extract_client.get_agent(id=os.getenv("EXTRACT_AGENT_ID"))
+    PARSER = create_llama_parse_client(result_type="markdown")
     PIPELINE_ID = os.getenv("LLAMACLOUD_PIPELINE_ID")
 
 

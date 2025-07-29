@@ -1,11 +1,15 @@
-from dotenv import load_dotenv
 import os
+import sys
+from dotenv import load_dotenv
 
 from llama_index.core.query_engine import CitationQueryEngine
 from llama_index.core.base.response.schema import Response
-from llama_index.indices.managed.llama_cloud import LlamaCloudIndex
 from llama_index.llms.openai import OpenAIResponses
 from typing import Union, cast
+
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
+
+from notebookllama.utils import create_llamacloud_index
 
 load_dotenv()
 
@@ -16,9 +20,13 @@ if (
 ):
     LLM = OpenAIResponses(model="gpt-4.1", api_key=os.getenv("OPENAI_API_KEY"))
     PIPELINE_ID = os.getenv("LLAMACLOUD_PIPELINE_ID")
-    RETR = LlamaCloudIndex(
-        api_key=os.getenv("LLAMACLOUD_API_KEY"), pipeline_id=PIPELINE_ID
-    ).as_retriever()
+    API_KEY = os.getenv("LLAMACLOUD_API_KEY")
+
+    if API_KEY is None or PIPELINE_ID is None:
+        raise ValueError("LLAMACLOUD_API_KEY and LLAMACLOUD_PIPELINE_ID must be set")
+
+    index = create_llamacloud_index(api_key=API_KEY, pipeline_id=PIPELINE_ID)
+    RETR = index.as_retriever()
     QE = CitationQueryEngine(
         retriever=RETR,
         llm=LLM,

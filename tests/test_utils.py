@@ -3,6 +3,7 @@ import os
 import pandas as pd
 from pathlib import Path
 from dotenv import load_dotenv
+from unittest.mock import patch, MagicMock
 
 from typing import Callable
 from pydantic import ValidationError
@@ -15,6 +16,16 @@ from src.notebookllama.processing import (
 )
 from src.notebookllama.mindmap import get_mind_map
 from src.notebookllama.models import Notebook
+from src.notebookllama.utils import (
+    get_llamacloud_base_url,
+    get_llamacloud_config,
+    create_llamacloud_client,
+    create_llama_extract_client,
+    create_llama_parse_client,
+    create_llamacloud_index,
+    LlamaCloudConfigError,
+    LLAMACLOUD_REGIONS,
+)
 
 load_dotenv()
 
@@ -189,3 +200,295 @@ def test_images_renaming(images_dir: str):
         with open(images_dir + "image.png", "wb") as wb:
             wb.write(bts)
         os.remove(image)
+
+
+# =============================================================================
+# Regional LlamaCloud Utilities Tests
+# =============================================================================
+
+
+class TestLlamaCloudRegionalUtils:
+    """Test suite for regional LlamaCloud utility functions."""
+
+    def test_llamacloud_regions_constant(self):
+        """Test that LLAMACLOUD_REGIONS contains expected regions."""
+        assert "default" in LLAMACLOUD_REGIONS
+        assert "eu" in LLAMACLOUD_REGIONS
+        assert LLAMACLOUD_REGIONS["default"] == "https://api.cloud.llamaindex.ai"
+        assert LLAMACLOUD_REGIONS["eu"] == "https://api.cloud.eu.llamaindex.ai"
+
+    @patch.dict(os.environ, {}, clear=True)
+    def test_get_llamacloud_base_url_no_region(self):
+        """Test get_llamacloud_base_url with no region set (defaults to North America)."""
+        result = get_llamacloud_base_url()
+        assert result == "https://api.cloud.llamaindex.ai"
+
+    @patch.dict(os.environ, {"LLAMACLOUD_REGION": "eu"})
+    def test_get_llamacloud_base_url_eu_region(self):
+        """Test get_llamacloud_base_url with EU region."""
+        result = get_llamacloud_base_url()
+        assert result == "https://api.cloud.eu.llamaindex.ai"
+
+    @patch.dict(os.environ, {"LLAMACLOUD_REGION": "default"})
+    def test_get_llamacloud_base_url_default_region(self):
+        """Test get_llamacloud_base_url with default region."""
+        result = get_llamacloud_base_url()
+        assert result == "https://api.cloud.llamaindex.ai"
+
+    @patch.dict(os.environ, {"LLAMACLOUD_REGION": "DEFAULT"})
+    def test_get_llamacloud_base_url_case_insensitive(self):
+        """Test get_llamacloud_base_url with case insensitive region."""
+        result = get_llamacloud_base_url()
+        assert result == "https://api.cloud.llamaindex.ai"
+
+    @patch.dict(os.environ, {"LLAMACLOUD_REGION": "  default  "})
+    def test_get_llamacloud_base_url_strips_whitespace(self):
+        """Test get_llamacloud_base_url strips whitespace from region."""
+        result = get_llamacloud_base_url()
+        assert result == "https://api.cloud.llamaindex.ai"
+
+    @patch.dict(os.environ, {"LLAMACLOUD_BASE_URL": "https://custom.api.com"})
+    def test_get_llamacloud_base_url_custom_override(self):
+        """Test get_llamacloud_base_url with custom base URL override."""
+        result = get_llamacloud_base_url()
+        assert result == "https://custom.api.com"
+
+    @patch.dict(
+        os.environ,
+        {"LLAMACLOUD_BASE_URL": "https://custom.api.com", "LLAMACLOUD_REGION": "eu"},
+    )
+    def test_get_llamacloud_base_url_custom_override_precedence(self):
+        """Test that custom base URL takes precedence over region."""
+        result = get_llamacloud_base_url()
+        assert result == "https://custom.api.com"
+
+    @patch.dict(os.environ, {"LLAMACLOUD_REGION": "invalid"})
+    def test_get_llamacloud_base_url_invalid_region(self):
+        """Test get_llamacloud_base_url with invalid region raises error."""
+        with pytest.raises(LlamaCloudConfigError) as exc_info:
+            get_llamacloud_base_url()
+        assert "Invalid LLAMACLOUD_REGION 'invalid'" in str(exc_info.value)
+        assert "default, eu" in str(exc_info.value)
+
+    @patch.dict(os.environ, {"LLAMACLOUD_API_KEY": "test-key"}, clear=True)
+    def test_get_llamacloud_config_valid(self):
+        """Test get_llamacloud_config with valid API key (defaults to North America)."""
+        result = get_llamacloud_config()
+        expected = {"token": "test-key", "base_url": "https://api.cloud.llamaindex.ai"}
+        assert result == expected
+
+    @patch.dict(
+        os.environ,
+        {"LLAMACLOUD_API_KEY": "test-key", "LLAMACLOUD_REGION": "eu"},
+        clear=True,
+    )
+    def test_get_llamacloud_config_with_region(self):
+        """Test get_llamacloud_config with region."""
+        result = get_llamacloud_config()
+        expected = {
+            "token": "test-key",
+            "base_url": "https://api.cloud.eu.llamaindex.ai",
+        }
+        assert result == expected
+
+    @patch.dict(os.environ, {}, clear=True)
+    def test_get_llamacloud_config_missing_api_key(self):
+        """Test get_llamacloud_config with missing API key raises error."""
+        with pytest.raises(LlamaCloudConfigError):
+            get_llamacloud_config()
+
+    @patch.dict(
+        os.environ,
+        {"LLAMACLOUD_API_KEY": "test-key", "LLAMACLOUD_REGION": "invalid"},
+        clear=True,
+    )
+    def test_get_llamacloud_config_invalid_region(self):
+        """Test get_llamacloud_config with invalid region raises error."""
+        with pytest.raises(LlamaCloudConfigError):
+            get_llamacloud_config()
+
+    @patch("src.notebookllama.utils.AsyncLlamaCloud")
+    @patch.dict(os.environ, {"LLAMACLOUD_API_KEY": "test-key"}, clear=True)
+    def test_create_llamacloud_client_valid(self, mock_client_class):
+        """Test create_llamacloud_client with valid configuration (defaults to North America)."""
+        mock_instance = MagicMock()
+        mock_client_class.return_value = mock_instance
+
+        result = create_llamacloud_client()
+
+        mock_client_class.assert_called_once_with(
+            token="test-key", base_url="https://api.cloud.llamaindex.ai"
+        )
+        assert result == mock_instance
+
+    @patch("src.notebookllama.utils.AsyncLlamaCloud")
+    @patch.dict(
+        os.environ,
+        {"LLAMACLOUD_API_KEY": "test-key", "LLAMACLOUD_REGION": "eu"},
+        clear=True,
+    )
+    def test_create_llamacloud_client_with_region(self, mock_client_class):
+        """Test create_llamacloud_client with region."""
+        mock_instance = MagicMock()
+        mock_client_class.return_value = mock_instance
+
+        result = create_llamacloud_client()
+
+        mock_client_class.assert_called_once_with(
+            token="test-key", base_url="https://api.cloud.eu.llamaindex.ai"
+        )
+        assert result == mock_instance
+
+    @patch.dict(os.environ, {}, clear=True)
+    def test_create_llamacloud_client_missing_api_key(self):
+        """Test create_llamacloud_client with missing API key raises error."""
+        with pytest.raises(LlamaCloudConfigError):
+            create_llamacloud_client()
+
+    @patch("src.notebookllama.utils.LlamaExtract")
+    @patch.dict(os.environ, {"LLAMACLOUD_API_KEY": "test-key"}, clear=True)
+    def test_create_llama_extract_client_valid(self, mock_extract_class):
+        """Test create_llama_extract_client with valid configuration (defaults to North America)."""
+        mock_instance = MagicMock()
+        mock_extract_class.return_value = mock_instance
+
+        result = create_llama_extract_client()
+
+        mock_extract_class.assert_called_once_with(
+            api_key="test-key", base_url="https://api.cloud.llamaindex.ai"
+        )
+        assert result == mock_instance
+
+    @patch("src.notebookllama.utils.LlamaExtract")
+    @patch.dict(
+        os.environ,
+        {"LLAMACLOUD_API_KEY": "test-key", "LLAMACLOUD_REGION": "eu"},
+        clear=True,
+    )
+    def test_create_llama_extract_client_with_region(self, mock_extract_class):
+        """Test create_llama_extract_client with region."""
+        mock_instance = MagicMock()
+        mock_extract_class.return_value = mock_instance
+
+        result = create_llama_extract_client()
+
+        mock_extract_class.assert_called_once_with(
+            api_key="test-key", base_url="https://api.cloud.eu.llamaindex.ai"
+        )
+        assert result == mock_instance
+
+    @patch.dict(os.environ, {}, clear=True)
+    def test_create_llama_extract_client_missing_api_key(self):
+        """Test create_llama_extract_client with missing API key raises error."""
+        with pytest.raises(LlamaCloudConfigError):
+            create_llama_extract_client()
+
+    @patch("src.notebookllama.utils.LlamaParse")
+    @patch.dict(os.environ, {"LLAMACLOUD_API_KEY": "test-key"}, clear=True)
+    def test_create_llama_parse_client_default(self, mock_parse_class):
+        """Test create_llama_parse_client with default parameters (defaults to North America)."""
+        mock_instance = MagicMock()
+        mock_parse_class.return_value = mock_instance
+
+        result = create_llama_parse_client()
+
+        mock_parse_class.assert_called_once_with(
+            api_key="test-key",
+            result_type="markdown",
+            base_url="https://api.cloud.llamaindex.ai",
+        )
+        assert result == mock_instance
+
+    @patch("src.notebookllama.utils.LlamaParse")
+    @patch.dict(os.environ, {"LLAMACLOUD_API_KEY": "test-key"}, clear=True)
+    def test_create_llama_parse_client_custom_result_type(self, mock_parse_class):
+        """Test create_llama_parse_client with custom result type (defaults to North America)."""
+        mock_instance = MagicMock()
+        mock_parse_class.return_value = mock_instance
+
+        result = create_llama_parse_client(result_type="text")
+
+        mock_parse_class.assert_called_once_with(
+            api_key="test-key",
+            result_type="text",
+            base_url="https://api.cloud.llamaindex.ai",
+        )
+        assert result == mock_instance
+
+    @patch("src.notebookllama.utils.LlamaParse")
+    @patch.dict(
+        os.environ,
+        {"LLAMACLOUD_API_KEY": "test-key", "LLAMACLOUD_REGION": "eu"},
+        clear=True,
+    )
+    def test_create_llama_parse_client_with_region(self, mock_parse_class):
+        """Test create_llama_parse_client with region."""
+        mock_instance = MagicMock()
+        mock_parse_class.return_value = mock_instance
+
+        result = create_llama_parse_client()
+
+        mock_parse_class.assert_called_once_with(
+            api_key="test-key",
+            result_type="markdown",
+            base_url="https://api.cloud.eu.llamaindex.ai",
+        )
+        assert result == mock_instance
+
+    @patch.dict(os.environ, {}, clear=True)
+    def test_create_llama_parse_client_missing_api_key(self):
+        """Test create_llama_parse_client with missing API key raises error."""
+        with pytest.raises(LlamaCloudConfigError):
+            create_llama_parse_client()
+
+    @patch("src.notebookllama.utils.LlamaCloudIndex")
+    @patch.dict(os.environ, {}, clear=True)
+    def test_create_llamacloud_index_valid(self, mock_index_class):
+        """Test create_llamacloud_index with valid parameters (defaults to North America)."""
+        mock_instance = MagicMock()
+        mock_index_class.return_value = mock_instance
+
+        result = create_llamacloud_index("test-key", "test-pipeline")
+
+        mock_index_class.assert_called_once_with(
+            api_key="test-key",
+            pipeline_id="test-pipeline",
+            base_url="https://api.cloud.llamaindex.ai",
+        )
+        assert result == mock_instance
+
+    @patch("src.notebookllama.utils.LlamaCloudIndex")
+    @patch.dict(os.environ, {"LLAMACLOUD_REGION": "eu"}, clear=True)
+    def test_create_llamacloud_index_with_region(self, mock_index_class):
+        """Test create_llamacloud_index with region."""
+        mock_instance = MagicMock()
+        mock_index_class.return_value = mock_instance
+
+        result = create_llamacloud_index("test-key", "test-pipeline")
+
+        mock_index_class.assert_called_once_with(
+            api_key="test-key",
+            pipeline_id="test-pipeline",
+            base_url="https://api.cloud.eu.llamaindex.ai",
+        )
+        assert result == mock_instance
+
+    @patch.dict(os.environ, {}, clear=True)
+    def test_create_llamacloud_index_missing_api_key(self):
+        """Test create_llamacloud_index with missing API key raises error."""
+        with pytest.raises(LlamaCloudConfigError) as exc_info:
+            create_llamacloud_index("", "test-pipeline")
+        assert "API key is required" in str(exc_info.value)
+
+    @patch.dict(os.environ, {}, clear=True)
+    def test_create_llamacloud_index_missing_pipeline_id(self):
+        """Test create_llamacloud_index with missing pipeline ID raises error."""
+        with pytest.raises(LlamaCloudConfigError) as exc_info:
+            create_llamacloud_index("test-key", "")
+        assert "Pipeline ID is required" in str(exc_info.value)
+
+    @patch.dict(os.environ, {"LLAMACLOUD_REGION": "invalid"}, clear=True)
+    def test_create_llamacloud_index_invalid_region(self):
+        """Test create_llamacloud_index with invalid region raises error."""
+        with pytest.raises(LlamaCloudConfigError):
+            create_llamacloud_index("test-key", "test-pipeline")

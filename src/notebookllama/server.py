@@ -1,8 +1,13 @@
+import os
+import sys
 from querying import query_index
 from processing import process_file
 from mindmap import get_mind_map
 from fastmcp import FastMCP
 from typing import List, Union, Literal
+
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
+
 
 mcp: FastMCP = FastMCP(name="MCP For NotebookLM")
 

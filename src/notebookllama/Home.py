@@ -315,3 +315,24 @@ else:
 
 if __name__ == "__main__":
     instrumentor.start_registering()
+
+# Add a fun personalized footer and dynamic greeting
+import datetime
+
+current_hour = datetime.datetime.now().hour
+if current_hour < 12:
+    greeting = "Good morning ☀️"
+elif current_hour < 18:
+    greeting = "Good afternoon 🌤️"
+else:
+    greeting = "Good evening 🌙"
+
+footer_quotes = [
+    "“Simplicity is the soul of efficiency.” – Austin Freeman",
+    "“Code is like humor. When you have to explain it, it’s bad.” – Cory House",
+    "“Programs must be written for people to read.” – Harold Abelson",
+    "“First, solve the problem. Then, write the code.” – John Johnson",
+]
+st.markdown("---")
+st.markdown(f"### {greeting}, curious mind!")
+st.caption(random.choice(footer_quotes))

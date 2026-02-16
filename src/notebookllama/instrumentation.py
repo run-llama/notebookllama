@@ -153,7 +153,10 @@ class OtelTracesSqlEngine:
             compression: Compression algorithm (default: snappy)
             partition_cols: Columns to partition by (e.g., ['service_name', 'date'])
         """
-        df = self.to_pandas()
+        try:
+            df = self.to_pandas()
+        except ValueError:
+            df = pd.DataFrame()
 
         # Ensure start_time is datetime for better downstream usability
         if "start_time" in df.columns:
